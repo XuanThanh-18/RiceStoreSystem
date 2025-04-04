@@ -1,5 +1,6 @@
 package com.toby.ricemanagersystem.model;
 
+import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -15,7 +16,7 @@ import java.time.LocalDateTime;
 @Table(name = "debt_record")
 public class DebtRecord extends Model {
     @ManyToOne
-    @JoinColumn(name = "customer_id")
+    @JoinColumn(name = "customer_id") // một khách hàng có nhiều phiếu ghi nợ
     private Customer customer;
     @Column(name = "debt_amount")
     private Double debtAmount;
