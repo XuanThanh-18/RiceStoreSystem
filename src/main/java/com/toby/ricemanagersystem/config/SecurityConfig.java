@@ -11,14 +11,15 @@ import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.web.filter.CorsFilter;
 
 import java.util.List;
 
@@ -30,6 +31,7 @@ import java.util.List;
         prePostEnabled = true
 )
 public class SecurityConfig {
+
     private final CustomUserDetailsService customUserDetailsService;
     private final RestAuthenticationEntryPoint unauthorizedHandler;
     private final TokenAuthenticationFilter tokenAuthenticationFilter;
@@ -37,34 +39,34 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-                .cors().and()
-                .csrf().disable()
-                .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-                .and()
-                .exceptionHandling().authenticationEntryPoint(unauthorizedHandler)
-                .and()
-                .authorizeHttpRequests(auth -> auth
+                .cors(cors -> cors.configurationSource(corsConfigurationSource())) // cho phép truy cập từ frontend ở domain khác
+                .csrf(AbstractHttpConfigurer::disable)
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)) // không lưu thông tin đăng nhập trong session – dùng JWT (token) để xác thực thay vì session truyền thống
+                .exceptionHandling(exception -> exception.authenticationEntryPoint(unauthorizedHandler)) // Khi người dùng không có quyền truy cập, sẽ chạy custom entry point unauthorizedHandler để trả về JSON thay vì chuyển hướng đến trang login
+                .authorizeHttpRequests(auth -> auth  //Cho phép các đường dẫn tĩnh
                         .requestMatchers("/",
                                 "/error",
                                 "/favicon.ico",
-                                "/**/*.png",
-                                "/**/*.gif",
-                                "/**/*.svg",
-                                "/**/*.jpg",
-                                "/**/*.html",
-                                "/**/*.css",
-                                "/**/*.js")
+                                "/*.png",
+                                "/*.gif",
+                                "/*.svg",
+                                "/*.jpg",
+                                "/*.html",
+                                "/*.css",
+                                "/*.js")
                         .permitAll()
-                        .requestMatchers("/api/auth/**", "/ws/**", "/api/url-sharing/**")
+                        .requestMatchers("/api/auth/forgot-password").permitAll()
+                        .requestMatchers("/api/auth/**", "/ws/**", "/api/url-sharing/**") //Cho phép các API liên quan tới xác thực, WebSocket, chia sẻ URL được truy cập tự do.
                         .permitAll()
-                        .anyRequest()
-                        .authenticated()
+                        .anyRequest().authenticated() // Mọi request còn lại bắt buộc phải đăng nhập mới truy cập được.
                 )
+                //Chèn custom JWT filter (tokenAuthenticationFilter) vào trước filter mặc định (UsernamePasswordAuthenticationFilter)
+                // để xử lý token trong các request.
                 .addFilterBefore(tokenAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
-
+    //để xử lý việc xác thực (login).
     @Bean
     public AuthenticationManager authenticationManager() {
         return authenticationProvider()::authenticate;
@@ -72,8 +74,11 @@ public class SecurityConfig {
 
     @Bean
     public AuthenticationProvider authenticationProvider() {
+        // xác thực user từ database
         DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        //load thông tin người dùng
         authProvider.setUserDetailsService(customUserDetailsService);
+        //Mã hóa mật khẩu
         authProvider.setPasswordEncoder(passwordEncoder());
         return authProvider;
     }
@@ -83,15 +88,17 @@ public class SecurityConfig {
         return new BCryptPasswordEncoder();
     }
 
+    // ✅ CorsConfigurationSource thay vì CorsFilter
     @Bean
-    public CorsFilter corsFilter() {
-        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+    public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowCredentials(true);
-        config.setAllowedOrigins(List.of("http://localhost:3000"));
-        config.setAllowedHeaders(List.of("Authorization", "Cache-Control", "Content-Type"));
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        source.registerCorsConfiguration("/**", config);
-        return new CorsFilter(source);
+        config.setAllowCredentials(true); //Cho phép gửi cookie/token từ frontend
+        config.setAllowedOrigins(List.of("http://localhost:3000")); //Cho phép domain frontend gọi API này
+        config.setAllowedHeaders(List.of("Authorization", "Cache-Control", "Content-Type")); //Cho phép các header này được gửi lên.
+        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS")); //Cho phép các method HTTP cụ thể.
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config); //Gán cấu hình CORS cho toàn bộ các endpoint
+        return source;
     }
 }
