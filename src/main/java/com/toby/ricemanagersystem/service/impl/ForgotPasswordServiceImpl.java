@@ -10,7 +10,6 @@ import com.toby.ricemanagersystem.repository.UserRepository;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DataAccessException;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -20,13 +19,12 @@ import org.springframework.stereotype.Service;
 
 import java.io.UnsupportedEncodingException;
 import java.time.LocalDateTime;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class ForgotPasswordServiceImpl implements com.toby.ricemanagersystem.service.ForgotPasswordService {
-    @Autowired
-    private JavaMailSender javaMailSender;
 
     @Value("${mss.app.fe-url}")
     private String feHost;
@@ -34,12 +32,13 @@ public class ForgotPasswordServiceImpl implements com.toby.ricemanagersystem.ser
     @Value("${spring.mail.username}")
     private String fromMail;
 
-    private final int MINUTES = 10;
+    private static final int MINUTES = 10;
+
     private final ForgotPasswordTokenRepository forgotPasswordTokenRepository;
     private final UserProfileRepository userProfileRepository;
     private final UserRepository userRepository;
-
     private final PasswordEncoder passwordEncoder;
+    private final JavaMailSender javaMailSender;
 
     @Override
     public String generateToken() {
@@ -55,27 +54,28 @@ public class ForgotPasswordServiceImpl implements com.toby.ricemanagersystem.ser
     public void sendEmail(String to, String subject, String emailLink) throws MessagingException, UnsupportedEncodingException {
         MimeMessage message = javaMailSender.createMimeMessage();
         MimeMessageHelper helper = new MimeMessageHelper(message, true);
-        String emailCOntent  = "<p>Xin chào!</p>"
+
+        String emailContent = "<p>Xin chào!</p>"
                 + "Truy cập đường link bên dưới để đặt lại mật khẩu"
                 + "<p><a href=\"" + emailLink + "\">Thay đổi mật khẩu</a></p>"
                 + "<br>"
                 + "Bỏ qua nếu bạn không thực hiện yêu cầu này!";
-        helper.setText(emailCOntent , true);
-        helper.setFrom(fromMail,"K16 - TobyXuanThanh");
+
+        helper.setText(emailContent, true);
+        helper.setFrom(fromMail, "Toby Xuan Thanh");
         helper.setSubject(subject);
         helper.setTo(to);
+
         javaMailSender.send(message);
     }
 
     @Override
     public String createForgotPasswordToken(String email) {
         try {
-            UserProfile userProfile = userProfileRepository.findByEmail(email);
-            if (userProfile.getUser() == null) {
-                throw new RuntimeException("This email not belong to any user");
-            }
-            User user = userProfile.getUser();
+            UserProfile userProfile = userProfileRepository.findByEmail(email)
+                    .orElseThrow(() -> new CustomServiceException("Email không tồn tại trong hệ thống"));
 
+            User user = userProfile.getUser();
             ForgotPasswordToken forgotPasswordToken = new ForgotPasswordToken();
             forgotPasswordToken.setExpireTime(expireTimeRange());
             forgotPasswordToken.setToken(generateToken());
@@ -86,65 +86,61 @@ public class ForgotPasswordServiceImpl implements com.toby.ricemanagersystem.ser
 
             return feHost + "reset-password?token=" + forgotPasswordToken.getToken();
         } catch (DataAccessException e) {
-            throw new CustomServiceException("Fail to update supplier: " + e.getMessage(), e);
+            throw new CustomServiceException("Lỗi khi tạo token quên mật khẩu: " + e.getMessage(), e);
         }
     }
+
     @Override
     public void requestForgotPassword(String email) {
         String emailLink = createForgotPasswordToken(email);
         try {
             sendEmail(email, "Đặt lại mật khẩu", emailLink);
         } catch (MessagingException | UnsupportedEncodingException e) {
-            throw new RuntimeException(e);
+            throw new CustomServiceException("Lỗi khi gửi email: " + e.getMessage(), e);
         }
     }
-
 
     @Override
     public boolean isExpired(String forgotPasswordToken) {
-        ForgotPasswordToken forgotToken = forgotPasswordTokenRepository.findByToken(forgotPasswordToken);
-        if (forgotToken == null) {
-            throw new RuntimeException("Not have any forgot password token available");
-        }
-        return LocalDateTime.now().isAfter(forgotToken.getExpireTime());
-    }
+        ForgotPasswordToken token = forgotPasswordTokenRepository.findByToken(forgotPasswordToken)
+                .orElseThrow(() -> new CustomServiceException("Token không tồn tại"));
 
+        return LocalDateTime.now().isAfter(token.getExpireTime());
+    }
 
     @Override
     public boolean checkIsUsed(String forgotPasswordToken) {
-        ForgotPasswordToken forgotToken = forgotPasswordTokenRepository.findByToken(forgotPasswordToken);
-        if (forgotToken == null) {
-            throw new RuntimeException("Not have any forgot password token available");
-        }
-        return forgotToken.isUsed();
-    }
+        ForgotPasswordToken token = forgotPasswordTokenRepository.findByToken(forgotPasswordToken)
+                .orElseThrow(() -> new CustomServiceException("Token không tồn tại"));
 
+        return token.isUsed();
+    }
 
     @Override
     public void resetPassword(String token, String newPassword) {
         try {
-            ForgotPasswordToken forgotToken = forgotPasswordTokenRepository.findByToken(token);
-            if (forgotToken == null) {
-                throw new RuntimeException("Not have any forgot password token available");
-            } else if (checkIsUsed(token)) {
-                throw new RuntimeException("This forgot password token is used!");
+            ForgotPasswordToken forgotToken = forgotPasswordTokenRepository.findByToken(token)
+                    .orElseThrow(() -> new CustomServiceException("Token quên mật khẩu không hợp lệ"));
+
+            if (checkIsUsed(token)) {
+                throw new CustomServiceException("Token quên mật khẩu đã được sử dụng");
             } else if (isExpired(token)) {
-                throw new RuntimeException("This forgot password token is expired!");
+                throw new CustomServiceException("Token quên mật khẩu đã hết hạn");
+            }
+
+            if (newPassword == null || newPassword.isEmpty()) {
+                throw new CustomServiceException("Mật khẩu mới không thể để trống");
             }
 
             User user = forgotToken.getUser();
-            if (newPassword == null) {
-                throw new RuntimeException("New password must have");
-            }
             user.setPassword(passwordEncoder.encode(newPassword));
             userRepository.save(user);
 
             forgotToken.setUsed(true);
             forgotPasswordTokenRepository.save(forgotToken);
+
         } catch (DataAccessException e) {
-            throw new CustomServiceException("Fail to update user: " + e.getMessage(), e);
+            throw new CustomServiceException("Lỗi khi cập nhật mật khẩu người dùng: " + e.getMessage(), e);
         }
-
-
     }
 }
