@@ -117,8 +117,8 @@ public class UserServiceImpl implements com.toby.ricemanagersystem.service.UserS
             throw new IllegalArgumentException("User already exists.");
         }
 
-        UserProfile userProfile = userProfileRepository.findByEmail(registerRequestDTO.getEmail());
-        if(userProfile != null){
+        var userProfile = userProfileRepository.findByEmail(registerRequestDTO.getEmail());
+        if(userProfile.isPresent()){
             throw new IllegalArgumentException("Email has been registered");
         }
 

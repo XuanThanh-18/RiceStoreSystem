@@ -29,7 +29,7 @@ public class UserPrincipal implements UserDetails {
         List<GrantedAuthority> authorities = new ArrayList<>();
         // Assuming getRole() returns a single Role object
         String role = String.valueOf(user.getRole());
-        System.out.println(role + "OOoooooooooo");
+        System.out.println("Nguoi dung dang dang nhap voi quyen: " + role);
         if (role != null) {
             authorities.add(new SimpleGrantedAuthority(role.toUpperCase()));
         }

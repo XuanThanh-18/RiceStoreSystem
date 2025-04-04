@@ -32,10 +32,13 @@ public class AuthenticationController {
 
     @PostMapping("/login")
     public ResponseEntity<?> authenticateUser(@RequestBody LoginRequest loginRequest) {
+        // xac thuc nguoi dung
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword())
         );
+        // dat vao contect = > xac nhan nguoi dung da dang nhap
         SecurityContextHolder.getContext().setAuthentication(authentication);
+        // tao token
         String token = tokenProvider.createToken(authentication);
 
         UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
@@ -63,7 +66,7 @@ public class AuthenticationController {
     public ResponseEntity<?> forgotPassword(@RequestParam("email") String email) {
         try {
             forgotPasswordService.requestForgotPassword(email);
-            return ResponseEntity.ok("hihi");
+            return ResponseEntity.ok("Pass đã được gửi đên mail của bạn! ");
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(e.getMessage()); // Consider a more informative error structure
         } catch (Exception e) {
